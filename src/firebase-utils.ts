@@ -138,13 +138,17 @@ export function initializeFirebase(
         FIREBASE_DATABASE_EMULATOR_HOST,
       );
       /* eslint-enable no-console */
-    } else if (protectProduction?.rtdb && protectProduction?.rtdb !== 'none') {
+    } else if (
+      protectProduction &&
+      protectProduction.rtdb &&
+      protectProduction.rtdb !== 'none'
+    ) {
       /* eslint-disable no-console */
       console.warn(
         'cypress-firebase: FIREBASE_DATABASE_EMULATOR_HOST is not set, RTDB operations may alter production instead of emulator!',
       );
       /* eslint-enable no-console */
-      if (protectProduction?.rtdb === 'error') {
+      if (protectProduction.rtdb === 'error') {
         throw new Error(
           'cypress-firebase: FIREBASE_DATABASE_EMULATOR_HOST is not set. Set FIREBASE_DATABASE_EMULATOR_HOST environment variable or change protectProduction.rtdb setting',
         );
@@ -158,13 +162,17 @@ export function initializeFirebase(
         process.env.FIREBASE_AUTH_EMULATOR_HOST,
       );
       /* eslint-enable no-console */
-    } else if (protectProduction?.auth && protectProduction?.auth !== 'none') {
+    } else if (
+      protectProduction &&
+      protectProduction.auth &&
+      protectProduction.auth !== 'none'
+    ) {
       /* eslint-disable no-console */
       console.warn(
         'cypress-firebase: FIREBASE_AUTH_EMULATOR_HOST is not set, auth operations may alter production instead of emulator!',
       );
       /* eslint-enable no-console */
-      if (protectProduction?.auth === 'error') {
+      if (protectProduction.auth === 'error') {
         throw new Error(
           'cypress-firebase: FIREBASE_AUTH_EMULATOR_HOST is not set. Set FIREBASE_AUTH_EMULATOR_HOST environment variable or change protectProduction.auth setting',
         );
@@ -209,15 +217,16 @@ export function initializeFirebase(
       /* eslint-enable no-console */
       adminInstance.firestore().settings(firestoreSettings);
     } else if (
-      protectProduction?.firestore &&
-      protectProduction?.firestore !== 'none'
+      protectProduction &&
+      protectProduction.firestore &&
+      protectProduction.firestore !== 'none'
     ) {
       /* eslint-disable no-console */
       console.warn(
         'cypress-firebase: FIRESTORE_EMULATOR_HOST is not set, Firestore operations may alter production instead of emulator!',
       );
       /* eslint-enable no-console */
-      if (protectProduction?.firestore === 'error') {
+      if (protectProduction.firestore === 'error') {
         throw new Error(
           'cypress-firebase: FIRESTORE_EMULATOR_HOST is not set. Set FIRESTORE_EMULATOR_HOST environment variable or change protectProduction.firestore setting',
         );
