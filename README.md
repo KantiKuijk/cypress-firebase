@@ -559,12 +559,12 @@ The parameters (and return type) depend on the function used. They are the same 
 ```javascript
 const uid = '123SomeUid';
 const email = 'some@user.com';
-cy.createAuthUser(uid, { displayName: 'Test User' });
-cy.updateAuthUser(uid, { email });
-cy.setAuthUserCustomClaims(uid, { role: 'admin' });
-cy.getAuthUserByEmail(email).then((user) => {
-  console.log(user.displayName); // Test User
-  console.log(user.claims.role); // admin
+cy.authCreateUser({ uid });
+cy.authUpdateUser(uid, { displayName: 'Test User', email });
+cy.authSetCustomUserClaims(uid, { role: 'admin' });
+cy.authGetUserByEmail(email).then((user) => {
+  console.log(user?.displayName); // Test User
+  console.log(user?.customClaims?.['role']); // admin
 });
 ```
 
