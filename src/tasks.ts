@@ -35,7 +35,7 @@ function optionsToRtdbRef(
     'limitToFirst',
     'limitToLast',
   ].forEach((optionName: string) => {
-    if ((options as any)?.[optionName]) {
+    if (options && (options as any)[optionName]) {
       const args = (options as any)[optionName];
       // Spread arg arrays (such as startAfter and endBefore)
       if (Array.isArray(args)) {
@@ -77,14 +77,14 @@ export function convertValueToTimestampOrGeoPointIfPossible(
 ): firestore.FieldValue {
   /* eslint-disable no-underscore-dangle */
   if (
-    dataVal?._methodName === 'serverTimestamp' ||
-    dataVal?._methodName === 'FieldValue.serverTimestamp' // v8 and earlier
+    (dataVal && dataVal._methodName === 'serverTimestamp') ||
+    (dataVal && dataVal._methodName === 'FieldValue.serverTimestamp') // v8 and earlier
   ) {
     return firestoreStatics.FieldValue.serverTimestamp();
   }
   if (
-    dataVal?._methodName === 'deleteField' ||
-    dataVal?._methodName === 'FieldValue.delete' // v8 and earlier
+    (dataVal && dataVal._methodName === 'deleteField') ||
+    (dataVal && dataVal._methodName === 'FieldValue.delete') // v8 and earlier
   ) {
     return firestoreStatics.FieldValue.delete();
   }
@@ -203,7 +203,7 @@ export async function callRtdb(
     };
     type RTDBMethod = 'push' | 'remove' | 'set' | 'update' | 'get';
     const cleanedActionName: RTDBMethod =
-      (actionNameMap as any)[action] ?? action;
+      (actionNameMap as any)[action] || action;
     await dbRef[cleanedActionName](data);
     // Prevents Cypress error with message:
     // "You must return a promise, a value, or null to indicate that the task was handled."
@@ -257,7 +257,7 @@ export async function callFirestore(
       }
       // Falling back to null in the case of falsey value prevents Cypress error with message:
       // "You must return a promise, a value, or null to indicate that the task was handled."
-      return (typeof snap?.data === 'function' && snap.data()) || null;
+      return (snap && typeof snap.data === 'function' && snap.data()) || null;
     }
 
     if (action === 'delete') {
@@ -295,7 +295,8 @@ export async function callFirestore(
       data,
       // Use static option if passed (tests), otherwise fallback to statics on adminInstance
       // Tests do not have statics since they are using @firebase/testing
-      options?.statics ?? (adminInstance.firestore as typeof firestore),
+      (options && options.statics) ||
+        (adminInstance.firestore as typeof firestore),
     );
 
     if (action === 'set') {
@@ -304,9 +305,9 @@ export async function callFirestore(
         .doc(actionPath)
         .set(
           dataToSet,
-          options?.merge
+          options && options.merge
             ? ({
-                merge: options?.merge,
+                merge: options.merge,
               } as FirebaseFirestore.SetOptions)
             : (undefined as any),
         );
@@ -336,16 +337,22 @@ export async function callFirestore(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a UserRecord
  */
-export function createAuthUser(
+export function authCreateUser(
   adminInstance: any,
   properties: auth.CreateRequest,
   tenantId?: string,
-): Promise<auth.UserRecord | null> {
+): Promise<
+  | auth.UserRecord
+  | 'auth/email-already-exists'
+  | 'auth/phone-number-already-exists'
+> {
   return getAuth(adminInstance, tenantId)
     .createUser(properties)
     .catch((err) => {
-      if (err.code === 'auth/email-already-exists') return null;
-      if (err.code === 'auth/phone-number-already-exists') return null;
+      if (err.code === 'auth/email-already-exists')
+        return 'auth/email-already-exists';
+      if (err.code === 'auth/phone-number-already-exists')
+        return 'auth/phone-number-already-exists';
       throw err;
     });
 }
@@ -357,7 +364,7 @@ export function createAuthUser(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise that resolves when the operation completes with the result of the import
  */
-export function importAuthUsers(
+export function authImportUsers(
   adminInstance: any,
   usersImport: auth.UserImportRecord[],
   importOptions?: auth.UserImportOptions,
@@ -377,7 +384,7 @@ export function importAuthUsers(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise that resolves with the current batch of downloaded users and the next page token
  */
-export function listAuthUsers(
+export function authListUsers(
   adminInstance: any,
   maxResults?: number,
   pageToken?: string,
@@ -393,12 +400,17 @@ export function listAuthUsers(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a UserRecord
  */
-export function getAuthUser(
+export function authGetUser(
   adminInstance: any,
   uid: string,
   tenantId?: string,
-): Promise<auth.UserRecord> {
-  return getAuth(adminInstance, tenantId).getUser(uid);
+): Promise<auth.UserRecord | 'auth/user-not-found'> {
+  return getAuth(adminInstance, tenantId)
+    .getUser(uid)
+    .catch((err) => {
+      if (err.code === 'auth/user-not-found') return 'auth/user-not-found';
+      throw err;
+    });
 }
 /**
  * Get Firebase Auth user based on email
@@ -407,15 +419,15 @@ export function getAuthUser(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a UserRecord
  */
-export function getAuthUserByEmail(
+export function authGetUserByEmail(
   adminInstance: any,
   email: string,
   tenantId?: string,
-): Promise<auth.UserRecord | null> {
+): Promise<auth.UserRecord | 'auth/user-not-found'> {
   return getAuth(adminInstance, tenantId)
     .getUserByEmail(email)
     .catch((err) => {
-      if (err.code === 'auth/user-not-found') return null;
+      if (err.code === 'auth/user-not-found') return 'auth/user-not-found';
       throw err;
     });
 }
@@ -426,15 +438,15 @@ export function getAuthUserByEmail(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a UserRecord
  */
-export function getAuthUserByPhoneNumber(
+export function authGetUserByPhoneNumber(
   adminInstance: any,
   phoneNumber: string,
   tenantId?: string,
-): Promise<auth.UserRecord | null> {
+): Promise<auth.UserRecord | 'auth/user-not-found'> {
   return getAuth(adminInstance, tenantId)
     .getUserByPhoneNumber(phoneNumber)
     .catch((err) => {
-      if (err.code === 'auth/user-not-found') return null;
+      if (err.code === 'auth/user-not-found') return 'auth/user-not-found';
       throw err;
     });
 }
@@ -446,16 +458,16 @@ export function getAuthUserByPhoneNumber(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a UserRecord
  */
-export function getAuthUserByProviderUid(
+export function authGetUserByProviderUid(
   adminInstance: any,
   providerId: string,
   uid: string,
   tenantId?: string,
-): Promise<auth.UserRecord | null> {
+): Promise<auth.UserRecord | 'auth/user-not-found'> {
   return getAuth(adminInstance, tenantId)
     .getUserByProviderUid(providerId, uid)
     .catch((err) => {
-      if (err.code === 'auth/user-not-found') return null;
+      if (err.code === 'auth/user-not-found') return 'auth/user-not-found';
       throw err;
     });
 }
@@ -466,7 +478,7 @@ export function getAuthUserByProviderUid(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a GetUsersResult object
  */
-export function getAuthUsers(
+export function authGetUsers(
   adminInstance: any,
   identifiers: auth.UserIdentifier[],
   tenantId?: string,
@@ -482,7 +494,7 @@ export function getAuthUsers(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise that resolves with a UserRecord
  */
-export function updateAuthUser(
+export function authUpdateUser(
   adminInstance: any,
   uid: string,
   properties: auth.UpdateRequest,
@@ -496,9 +508,9 @@ export function updateAuthUser(
  * @param uid - UID of the user to edit
  * @param customClaims - The custom claims to set, null deletes the custom claims
  * @param tenantId - Optional ID of tenant used for multi-tenancy
- * @returns Promise that resolves with the current batch of downloaded users and the next page token
+ * @returns Promise that resolves with null when the operation completes
  */
-export function setAuthUserCustomClaims(
+export function authSetCustomUserClaims(
   adminInstance: any,
   uid: string,
   customClaims: object | null,
@@ -514,9 +526,9 @@ export function setAuthUserCustomClaims(
  * @param adminInstance - Admin SDK instance
  * @param uid - UID of the user to delete
  * @param tenantId - Optional ID of tenant used for multi-tenancy
- * @returns An empty Promise that resolves when user is deleted
+ * @returns Promise that resolves to null when user is deleted
  */
-export function deleteAuthUser(
+export function authDeleteUser(
   adminInstance: any,
   uid: string,
   tenantId?: string,
@@ -532,7 +544,7 @@ export function deleteAuthUser(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves to a DeleteUsersResult object
  */
-export function deleteAuthUsers(
+export function authDeleteUsers(
   adminInstance: any,
   uids: string[],
   tenantId?: string,
@@ -548,14 +560,14 @@ export function deleteAuthUsers(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a custom Firebase Auth token
  */
-export function createCustomToken(
+export function authCreateCustomToken(
   adminInstance: any,
   uid: string,
   customClaims?: object,
   tenantId?: string,
 ): Promise<string> {
   // Use custom claims or default to { isTesting: true }
-  const userCustomClaims = customClaims ?? {
+  const userCustomClaims = customClaims || {
     isTesting: true,
   };
 
@@ -574,7 +586,7 @@ export function createCustomToken(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a session cookie
  */
-export function createSessionCookie(
+export function authCreateSessionCookie(
   adminInstance: any,
   idToken: string,
   sessionCookieOptions: auth.SessionCookieOptions,
@@ -594,7 +606,7 @@ export function createSessionCookie(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with a decoded ID token
  */
-export function verifyIdToken(
+export function authVerifyIdToken(
   adminInstance: any,
   idToken: string,
   checkRevoked?: boolean,
@@ -610,7 +622,7 @@ export function verifyIdToken(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves when the operation completes
  */
-export function revokeRefreshTokens(
+export function authRevokeRefreshTokens(
   adminInstance: any,
   uid: string,
   tenantId?: string,
@@ -626,7 +638,7 @@ export function revokeRefreshTokens(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the email verification link
  */
-export function generateEmailVerificationLink(
+export function authGenerateEmailVerificationLink(
   adminInstance: any,
   email: string,
   actionCodeSettings?: auth.ActionCodeSettings,
@@ -646,7 +658,7 @@ export function generateEmailVerificationLink(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the password reset link
  */
-export function generatePasswordResetLink(
+export function authGeneratePasswordResetLink(
   adminInstance: any,
   email: string,
   actionCodeSettings?: auth.ActionCodeSettings,
@@ -666,7 +678,7 @@ export function generatePasswordResetLink(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the sign-in with email link
  */
-export function generateSignInWithEmailLink(
+export function authGenerateSignInWithEmailLink(
   adminInstance: any,
   email: string,
   actionCodeSettings: auth.ActionCodeSettings,
@@ -687,7 +699,7 @@ export function generateSignInWithEmailLink(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the email verification link
  */
-export function generateVerifyAndChangeEmailLink(
+export function authGenerateVerifyAndChangeEmailLink(
   adminInstance: any,
   email: string,
   newEmail: string,
@@ -708,7 +720,7 @@ export function generateVerifyAndChangeEmailLink(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the provider configuration
  */
-export function createProviderConfig(
+export function authCreateProviderConfig(
   adminInstance: any,
   providerConfig: auth.AuthProviderConfig,
   tenantId?: string,
@@ -723,7 +735,7 @@ export function createProviderConfig(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the provider configuration
  */
-export function getProviderConfig(
+export function authGetProviderConfig(
   adminInstance: any,
   providerId: string,
   tenantId?: string,
@@ -738,7 +750,7 @@ export function getProviderConfig(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the provider configurations
  */
-export function listProviderConfigs(
+export function authListProviderConfigs(
   adminInstance: any,
   providerFilter: auth.AuthProviderConfigFilter,
   tenantId?: string,
@@ -754,7 +766,7 @@ export function listProviderConfigs(
  * @param tenantId - Optional ID of tenant used for multi-tenancy
  * @returns Promise which resolves with the provider configuration
  */
-export function updateProviderConfig(
+export function authUpdateProviderConfig(
   adminInstance: any,
   providerId: string,
   providerConfig: auth.AuthProviderConfig,
@@ -771,9 +783,9 @@ export function updateProviderConfig(
  * @param adminInstance - Admin SDK instance
  * @param providerId - The provider ID
  * @param tenantId - Optional ID of tenant used for multi-tenancy
- * @returns Promise which resolves when the operation completes
+ * @returns Promise which resolves to null when the operation completes
  */
-export function deleteProviderConfig(
+export function authDeleteProviderConfig(
   adminInstance: any,
   providerId: string,
   tenantId?: string,
@@ -789,31 +801,31 @@ export function deleteProviderConfig(
 const tasks = {
   callRtdb,
   callFirestore,
-  createAuthUser,
-  importAuthUsers,
-  listAuthUsers,
-  getAuthUser,
-  getAuthUserByEmail,
-  getAuthUserByPhoneNumber,
-  getAuthUserByProviderUid,
-  getAuthUsers,
-  updateAuthUser,
-  setAuthUserCustomClaims,
-  deleteAuthUser,
-  deleteAuthUsers,
-  createCustomToken,
-  createSessionCookie,
-  verifyIdToken,
-  revokeRefreshTokens,
-  generateEmailVerificationLink,
-  generatePasswordResetLink,
-  generateSignInWithEmailLink,
-  generateVerifyAndChangeEmailLink,
-  createProviderConfig,
-  getProviderConfig,
-  listProviderConfigs,
-  updateProviderConfig,
-  deleteProviderConfig,
+  authCreateUser,
+  authImportUsers,
+  authListUsers,
+  authGetUser,
+  authGetUserByEmail,
+  authGetUserByPhoneNumber,
+  authGetUserByProviderUid,
+  authGetUsers,
+  authUpdateUser,
+  authSetCustomUserClaims,
+  authDeleteUser,
+  authDeleteUsers,
+  authCreateCustomToken,
+  authCreateSessionCookie,
+  authVerifyIdToken,
+  authRevokeRefreshTokens,
+  authGenerateEmailVerificationLink,
+  authGeneratePasswordResetLink,
+  authGenerateSignInWithEmailLink,
+  authGenerateVerifyAndChangeEmailLink,
+  authCreateProviderConfig,
+  authGetProviderConfig,
+  authListProviderConfigs,
+  authUpdateProviderConfig,
+  authDeleteProviderConfig,
 };
 /**
  * Type of all the names of tasks created by the plugin
@@ -843,36 +855,40 @@ export type TaskNameToReturn<TN extends TaskName> = ReturnType<
 export const taskSettingKeys = {
   callRtdb: ['action', 'path', 'options', 'data'],
   callFirestore: ['action', 'path', 'options', 'data'],
-  createAuthUser: ['properties', 'tenantId'],
-  importAuthUsers: ['usersImport', 'importOptions', 'tenantId'],
-  listAuthUsers: ['maxResults', 'pageToken', 'tenantId'],
-  getAuthUser: ['uid', 'tenantId'],
-  getAuthUserByEmail: ['email', 'tenantId'],
-  getAuthUserByPhoneNumber: ['phoneNumber', 'tenantId'],
-  getAuthUserByProviderUid: ['providerId', 'uid', 'tenantId'],
-  getAuthUsers: ['identifiers', 'tenantId'],
-  updateAuthUser: ['uid', 'properties', 'tenantId'],
-  setAuthUserCustomClaims: ['uid', 'customClaims', 'tenantId'],
-  deleteAuthUser: ['uid', 'tenantId'],
-  deleteAuthUsers: ['uids', 'tenantId'],
-  createCustomToken: ['uid', 'customClaims', 'tenantId'],
-  createSessionCookie: ['idToken', 'sessionCookieOptions', 'tenantId'],
-  verifyIdToken: ['idToken', 'checkRevoked', 'tenantId'],
-  revokeRefreshTokens: ['uid', 'tenantId'],
-  generateEmailVerificationLink: ['email', 'actionCodeSettings', 'tenantId'],
-  generatePasswordResetLink: ['email', 'actionCodeSettings', 'tenantId'],
-  generateSignInWithEmailLink: ['email', 'actionCodeSettings', 'tenantId'],
-  generateVerifyAndChangeEmailLink: [
+  authCreateUser: ['properties', 'tenantId'],
+  authImportUsers: ['usersImport', 'importOptions', 'tenantId'],
+  authListUsers: ['maxResults', 'pageToken', 'tenantId'],
+  authGetUser: ['uid', 'tenantId'],
+  authGetUserByEmail: ['email', 'tenantId'],
+  authGetUserByPhoneNumber: ['phoneNumber', 'tenantId'],
+  authGetUserByProviderUid: ['providerId', 'uid', 'tenantId'],
+  authGetUsers: ['identifiers', 'tenantId'],
+  authUpdateUser: ['uid', 'properties', 'tenantId'],
+  authSetCustomUserClaims: ['uid', 'customClaims', 'tenantId'],
+  authDeleteUser: ['uid', 'tenantId'],
+  authDeleteUsers: ['uids', 'tenantId'],
+  authCreateCustomToken: ['uid', 'customClaims', 'tenantId'],
+  authCreateSessionCookie: ['idToken', 'sessionCookieOptions', 'tenantId'],
+  authVerifyIdToken: ['idToken', 'checkRevoked', 'tenantId'],
+  authRevokeRefreshTokens: ['uid', 'tenantId'],
+  authGenerateEmailVerificationLink: [
+    'email',
+    'actionCodeSettings',
+    'tenantId',
+  ],
+  authGeneratePasswordResetLink: ['email', 'actionCodeSettings', 'tenantId'],
+  authGenerateSignInWithEmailLink: ['email', 'actionCodeSettings', 'tenantId'],
+  authGenerateVerifyAndChangeEmailLink: [
     'email',
     'newEmail',
     'actionCodeSettings',
     'tenantId',
   ],
-  createProviderConfig: ['providerConfig', 'tenantId'],
-  getProviderConfig: ['providerId', 'tenantId'],
-  listProviderConfigs: ['providerFilter', 'tenantId'],
-  updateProviderConfig: ['providerId', 'providerConfig', 'tenantId'],
-  deleteProviderConfig: ['providerId', 'tenantId'],
+  authCreateProviderConfig: ['providerConfig', 'tenantId'],
+  authGetProviderConfig: ['providerId', 'tenantId'],
+  authListProviderConfigs: ['providerFilter', 'tenantId'],
+  authUpdateProviderConfig: ['providerId', 'providerConfig', 'tenantId'],
+  authDeleteProviderConfig: ['providerId', 'tenantId'],
 } as const satisfies { [TN in TaskName]: readonly string[] };
 
 /**
