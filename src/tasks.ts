@@ -1,3 +1,13 @@
+import { Readable } from 'stream';
+import type {
+  Bucket,
+  UploadResponse,
+  File,
+  FileOptions,
+  GetFilesOptions,
+  GetFilesResponse,
+  DeleteFilesOptions,
+} from '@google-cloud/storage';
 import type { database, firestore, auth, app } from 'firebase-admin';
 import {
   FixtureData,
@@ -796,6 +806,96 @@ export function authDeleteProviderConfig(
 }
 
 /**
+ * Get the storage bucket, or the default bucket if none is provided
+ * @param adminInstance - Admin SDK instance
+ * @param bucket - the bucket name gs://<bucket-name>
+ * @returns The storage bucket, or the default bucket if none is provided
+ */
+function getStorageBucket(adminInstance: any, bucket?: string): Bucket {
+  const storage = adminInstance.storage();
+  return bucket ? storage.bucket(bucket) : storage.bucket();
+}
+
+/**
+ * Upload a file to the bucket
+ * @param adminInstance - Admin SDK instance
+ * @param pathString - The fully qualified path to the file you wish to upload to your bucket
+ * @param options - Configuration options for the upload
+ * @param bucket - the bucket to work in
+ * @returns the {@link UploadResponse} object containing the files in the bucket at index 0
+ */
+export function strgUpload(
+  adminInstance: any,
+  pathString: string,
+  options?: GetFilesOptions,
+  bucket?: string,
+): Promise<UploadResponse> {
+  return getStorageBucket(adminInstance, bucket).upload(pathString, options);
+}
+
+/**
+ * Create a {@link File} object
+ * @param adminInstance - Admin SDK instance
+ * @param name - The name of the file in this bucket
+ * @param options - File configuration options
+ * @param bucket - the bucket to work in
+ * @returns the File object
+ */
+export function strgFile(
+  adminInstance: any,
+  name: string,
+  options?: FileOptions,
+  bucket?: string,
+): File {
+  return getStorageBucket(adminInstance, bucket).file(name, options);
+}
+
+/**
+ * Get {@link File} objects for the files currently in the bucket
+ * @param adminInstance - Admin SDK instance
+ * @param query - Query object for listing files
+ * @param bucket - the bucket to work in
+ * @returns the {@link GetFilesResponse} object containing the files in the bucket at index 0
+ */
+export function strgGetFiles(
+  adminInstance: any,
+  query?: GetFilesOptions,
+  bucket?: string,
+): Promise<GetFilesResponse> {
+  return getStorageBucket(adminInstance, bucket).getFiles(query);
+}
+
+/**
+ * Get File objects for the files currently in the bucket as a readable object stream.
+ * @param adminInstance - Admin SDK instance
+ * @param query - Query object for listing files
+ * @param bucket - The bucket to work in
+ * @returns A readable stream that emits File instances
+ */
+export function strgGetFilesStream(
+  adminInstance: any,
+  query?: GetFilesOptions,
+  bucket?: string,
+): Readable {
+  return getStorageBucket(adminInstance, bucket).getFilesStream(query);
+}
+
+/**
+ * Iterate over the bucket's files, calling file.delete() on each (non-atomic).
+ * @param adminInstance - Admin SDK instance
+ * @param query - Query object for listing files, with force option added
+ * @param bucket - The bucket to work in
+ * @returns A promise that resolves when all files have been deleted or error occurs
+ */
+export function strgDeleteFiles(
+  adminInstance: any,
+  query?: DeleteFilesOptions,
+  bucket?: string,
+): Promise<void> {
+  return getStorageBucket(adminInstance, bucket).deleteFiles(query);
+}
+
+/**
  * Object containing all tasks created by the plugin
  */
 const tasks = {
@@ -826,6 +926,11 @@ const tasks = {
   authListProviderConfigs,
   authUpdateProviderConfig,
   authDeleteProviderConfig,
+  strgUpload,
+  strgFile,
+  strgGetFiles,
+  strgGetFilesStream,
+  strgDeleteFiles,
 };
 /**
  * Type of all the names of tasks created by the plugin
@@ -889,6 +994,11 @@ export const taskSettingKeys = {
   authListProviderConfigs: ['providerFilter', 'tenantId'],
   authUpdateProviderConfig: ['providerId', 'providerConfig', 'tenantId'],
   authDeleteProviderConfig: ['providerId', 'tenantId'],
+  strgUpload: ['pathString', 'options', 'bucket'],
+  strgFile: ['name', 'options', 'bucket'],
+  strgGetFiles: ['query', 'bucket'],
+  strgGetFilesStream: ['query', 'bucket'],
+  strgDeleteFiles: ['query', 'bucket'],
 } as const satisfies { [TN in TaskName]: readonly string[] };
 
 /**

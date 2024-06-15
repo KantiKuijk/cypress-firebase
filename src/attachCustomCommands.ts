@@ -1,3 +1,9 @@
+import { Readable } from 'stream';
+import type {
+  File,
+  GetFilesResponse,
+  UploadResponse,
+} from '@google-cloud/storage';
 import type { auth, firestore } from 'firebase-admin';
 import type { authCreateUser } from './tasks';
 import { typedTask, TaskNameToParams } from './tasks';
@@ -162,6 +168,50 @@ export interface CallRtdbOptions {
     | null
     | [number | string | boolean | null, string];
 }
+
+export type FileFilter = Readonly<
+  | {
+      type: 'string';
+      field: string;
+      condition: string | string[] | RegExp;
+    }
+  | {
+      type: 'number';
+      field: string;
+      condition: Readonly<['<' | '<=' | '=' | '>=' | '>' | '!=', number]>;
+    }
+  | {
+      type: 'date';
+      field: string;
+      condition: Readonly<
+        ['<' | '<=' | '=' | '>=' | '>' | '!=', Date | number | string]
+      >;
+    }
+  | {
+      type: 'exists';
+      field: string;
+    }
+  | {
+      type: 'custom';
+      condition: (value: File) => boolean;
+    }
+>;
+export type FileFilterOp = Readonly<
+  | {
+      op: 'not';
+      filter: FileFilter | FileFilterOp;
+    }
+  | {
+      op: 'and' | 'or' | 'xor' | 'nand' | 'nor' | 'xnor';
+      filters: Readonly<
+        [
+          FileFilter | FileFilterOp,
+          FileFilter | FileFilterOp,
+          ...(FileFilter | FileFilterOp)[],
+        ]
+      >;
+    }
+>;
 
 // Add custom commands to the existing Cypress interface
 declare global {
@@ -690,6 +740,83 @@ declare global {
       authDeleteProviderConfig: (
         ...args: TaskNameToParams<'authDeleteProviderConfig'>
       ) => Chainable<null>;
+
+      /**
+       * Upload a file to the bucket
+       * @param pathString - The fully qualified path to the file you wish to upload to your bucket
+       * @param options - Configuration options for the upload
+       * @param bucket - the bucket to work in
+       * @name cy.strgUpload
+       * @see https://github.com/prescottprue/cypress-firebase#cystrgupload
+       * @example
+       * cy.strgUpload("path/to/file", {destination: "destFileName"})
+       */
+      strgUpload: (
+        ...args: TaskNameToParams<'strgUpload'>
+      ) => Chainable<UploadResponse>;
+      /**
+       * Create a {@link File} object
+       * @param name - The name of the file in this bucket
+       * @param options - File configuration options
+       * @param bucket - the bucket to work in
+       * @name cy.strgFile
+       * @see https://github.com/prescottprue/cypress-firebase#cystrgfile
+       * @example
+       * cy.strgFile("name/of/file")
+       */
+      strgFile: (...args: TaskNameToParams<'strgFile'>) => Chainable<File>;
+      /**
+       * Get {@link File} objects for the files currently in the bucket
+       * @param query - Query object for listing files
+       * @param bucket - The bucket to work in
+       * @name cy.strgGetFiles
+       * @see https://github.com/prescottprue/cypress-firebase#cystrggetfiles
+       * @example
+       * cy.strgGetFiles()
+       */
+      strgGetFiles: (
+        ...args: TaskNameToParams<'strgGetFiles'>
+      ) => Chainable<GetFilesResponse[0]>;
+      /**
+       * Get File objects for the files currently in the bucket as a readable object stream.
+       * @param query - Query object for listing files
+       * @param bucket - The bucket to work in
+       * @name cy.strgGetFilesStream
+       * @see https://github.com/prescottprue/cypress-firebase#cystrggetfilesstream
+       * @example
+       * cy.strgGetFilesStream()
+       */
+      strgGetFilesStream: (
+        ...args: TaskNameToParams<'strgGetFilesStream'>
+      ) => Chainable<Readable>;
+      /**
+       * Iterate over the bucket's files, calling file.delete() on each (non-atomic).
+       * @param query - Query object for listing files
+       * @param bucket - The bucket to work in
+       * @name cy.strgDeleteFiles
+       * @see https://github.com/prescottprue/cypress-firebase#cystrgdeletefiles
+       * @example
+       * cy.strgDeleteFiles()
+       */
+      strgDeleteFiles: (
+        ...args: TaskNameToParams<'strgDeleteFiles'>
+      ) => Chainable<void>;
+      /**
+       * Gets files from the bucket which match the given filter
+       * @param filter - The filter to apply
+       * @param query - Query object for listing files
+       * @param bucket - The bucket to work in
+       * @name cy.strgGetFilesFiltered
+       * @see https://github.com/prescottprue/cypress-firebase#cystrggetfilesfiltered
+       * @example
+       * cy.getFilteredFiles({type: 'string', field: 'contentType', condition: 'image/png'})
+       * cy.getFilteredFiles({op: 'and', filters: [{type: 'string', field: 'contentType', condition: 'image/png'}, {type: 'number', field: 'size', condition: ['>', 1000]}]})
+       */
+      strgGetFilesFiltered: (
+        filter: FileFilter | FileFilterOp,
+        query?: TaskNameToParams<'strgGetFiles'>[0],
+        bucket?: string,
+      ) => Chainable<File[]>;
     }
   }
 }
@@ -795,6 +922,132 @@ function authDeleteAllUsers(
     );
   });
 }
+/**
+ * Makes a comparator function which takes a number, compares it to the given value, and returns a boolean
+ * @param comp the numeric comparison operator
+ * @param value the value to compare against
+ * @returns a function which takes a number and returns a boolean
+ */
+function makeComparator(
+  comp: '<' | '<=' | '=' | '>=' | '>' | '!=',
+  value: number,
+) {
+  switch (comp) {
+    case '<':
+      return (n1: number) => n1 < value;
+    case '<=':
+      return (n1: number) => n1 <= value;
+    case '=':
+      return (n1: number) => n1 === value;
+    case '>=':
+      return (n1: number) => n1 >= value;
+    case '>':
+      return (n1: number) => n1 > value;
+    case '!=':
+      return (n1: number) => n1 !== value;
+    default:
+      throw new Error('Invalid comparison operator');
+  }
+}
+/**
+ * Makes a filter function given a {@link FileFilter} or {@link FileFilterOp} object
+ * @param filter the FileFilter or FileFilterOp object
+ * @returns a function which takes a File object and returns a boolean
+ */
+function makeFilter(
+  filter: FileFilter | FileFilterOp,
+): (file: File) => boolean {
+  if ('op' in filter) {
+    switch (filter.op) {
+      case 'not': {
+        const filterFn = makeFilter(filter.filter);
+        return (file: File) => !filterFn(file);
+      }
+      case 'and': {
+        const filterFns = filter.filters.map(makeFilter);
+        return (file: File) => filterFns.every((fn) => fn(file));
+      }
+      case 'or': {
+        const filterFns = filter.filters.map(makeFilter);
+        return (file: File) => filterFns.some((fn) => fn(file));
+      }
+      case 'xor': {
+        const filterFns = filter.filters.map(makeFilter);
+        return (file: File) => filterFns.filter((fn) => fn(file)).length === 1;
+      }
+      case 'nand': {
+        const filterFns = filter.filters.map(makeFilter);
+        return (file: File) => !filterFns.every((fn) => fn(file));
+      }
+      case 'nor': {
+        const filterFns = filter.filters.map(makeFilter);
+        return (file: File) => !filterFns.some((fn) => fn(file));
+      }
+      case 'xnor': {
+        const filterFns = filter.filters.map(makeFilter);
+        return (file: File) => filterFns.filter((fn) => fn(file)).length !== 1;
+      }
+      default:
+        throw new Error('Invalid boolean operator');
+    }
+  } else {
+    const { type } = filter;
+    switch (type) {
+      case 'string': {
+        const { condition, field } = filter;
+        if (condition instanceof RegExp)
+          return (file: File) => condition.test(file.metadata[field]);
+        if (Array.isArray(condition))
+          return (file: File) => condition.includes(file.metadata[field]);
+        return (file: File) => file.metadata[field] === condition;
+      }
+      case 'number': {
+        const { condition, field } = filter;
+        const comparator = makeComparator(...condition);
+        return (file: File) => comparator(file.metadata[field]);
+      }
+      case 'date': {
+        const { condition, field } = filter;
+        const [op, value] = condition;
+        const comparator = makeComparator(op, new Date(value).getTime());
+        return (file: File) =>
+          comparator(new Date(file.metadata[field]).getTime());
+      }
+      case 'exists': {
+        const { field } = filter;
+        return (file: File) => field in file.metadata;
+      }
+      case 'custom': {
+        const { condition } = filter;
+        return (file: File) => condition(file);
+      }
+      default:
+        return () => true;
+    }
+  }
+}
+
+/**
+ * Gets files from the bucket which match the given filter
+ * @param cy - Cypress object
+ * @param filter - The filter to apply
+ * @param query - Query object for listing files
+ * @param bucket - The bucket to work in
+ * @returns An array of files which match the filter
+ * @example
+ * getFilteredFiles(cy, {type: 'string', field: 'contentType', condition: 'image/png'})
+ * getFilteredFiles(cy, {op: 'and', filters: [{type: 'string', field: 'contentType', condition: 'image/png'}, {type: 'number', field: 'size', condition: ['>', 1000]}]})
+ */
+function strgGetFilesFiltered(
+  cy: AttachCustomCommandParams['cy'],
+  filter: FileFilter | FileFilterOp,
+  query?: TaskNameToParams<'strgGetFiles'>[0],
+  bucket?: string,
+) {
+  return typedTask(cy, 'strgGetFiles', { query, bucket }).then((files) =>
+    files[0].filter(makeFilter(filter)),
+  );
+}
 
 type CommandNames =
   | 'callRtdb'
@@ -828,7 +1081,13 @@ type CommandNames =
   | 'authGetProviderConfig'
   | 'authListProviderConfigs'
   | 'authUpdateProviderConfig'
-  | 'authDeleteProviderConfig';
+  | 'authDeleteProviderConfig'
+  | 'strgUpload'
+  | 'strgFile'
+  | 'strgGetFiles'
+  | 'strgGetFilesStream'
+  | 'strgDeleteFiles'
+  | 'strgGetFilesFiltered';
 
 type CommandNamespacesConfig = {
   [N in CommandNames]?: string | boolean;
@@ -1529,5 +1788,71 @@ export default function attachCustomCommands(
         providerId: args[0],
         tenantId: args[1] || Cypress.env('TEST_TENANT_ID'),
       }),
+  );
+
+  Cypress.Commands.add(
+    (options && options.commandNames && options.commandNames.strgUpload) ||
+      'strgUpload',
+    (...args: TaskNameToParams<'strgUpload'>) =>
+      typedTask(cy, 'strgUpload', {
+        pathString: args[0],
+        options: args[1],
+        bucket: args[2] || Cypress.env('TEST_BUCKET_NAME'),
+      }),
+  );
+
+  Cypress.Commands.add(
+    (options && options.commandNames && options.commandNames.strgFile) ||
+      'strgFile',
+    (...args: TaskNameToParams<'strgFile'>) =>
+      typedTask(cy, 'strgFile', {
+        name: args[0],
+        options: args[1],
+        bucket: args[2] || Cypress.env('TEST_BUCKET_NAME'),
+      }),
+  );
+
+  Cypress.Commands.add(
+    (options && options.commandNames && options.commandNames.strgGetFiles) ||
+      'strgGetFiles',
+    (...args: TaskNameToParams<'strgGetFiles'>) =>
+      typedTask(cy, 'strgGetFiles', {
+        query: args[0],
+        bucket: args[1] || Cypress.env('TEST_BUCKET_NAME'),
+      }).then(([files]) => files),
+  );
+
+  Cypress.Commands.add(
+    (options &&
+      options.commandNames &&
+      options.commandNames.strgGetFilesStream) ||
+      'strgGetFilesStream',
+    (...args: TaskNameToParams<'strgGetFilesStream'>) =>
+      typedTask(cy, 'strgGetFilesStream', {
+        query: args[0],
+        bucket: args[1] || Cypress.env('TEST_BUCKET_NAME'),
+      }),
+  );
+
+  Cypress.Commands.add(
+    (options && options.commandNames && options.commandNames.strgDeleteFiles) ||
+      'strgDeleteFiles',
+    (...args: TaskNameToParams<'strgDeleteFiles'>) =>
+      typedTask(cy, 'strgDeleteFiles', {
+        query: args[0],
+        bucket: args[1] || Cypress.env('TEST_BUCKET_NAME'),
+      }),
+  );
+
+  Cypress.Commands.add(
+    (options &&
+      options.commandNames &&
+      options.commandNames.strgGetFilesFiltered) ||
+      'strgGetFilesFiltered',
+    (
+      filter: FileFilter | FileFilterOp,
+      query?: TaskNameToParams<'strgGetFiles'>[0],
+      bucket: string | undefined = Cypress.env('TEST_BUCKET_NAME'),
+    ) => strgGetFilesFiltered(cy, filter, query, bucket),
   );
 }
